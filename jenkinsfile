@@ -1,52 +1,70 @@
+
 pipeline {
   agent any
   
+  parameters {
+    choice(choices: ['development', 'staging', 'production'], description: 'Select the environment to deploy', name: 'ENVIRONMENT')
+  }
+
   stages {
+    stage('Checkout Code') {
+      steps {
+        git branch: 'master', url: 'https://github.com/josephifekwe97/amorservProject-assessment.git'
+      }
+    }
     stage('Build and Test') {
       steps {
         script {
-          // Install dependencies
-          sh 'npm install'
-          // Run unit tests
-          sh 'npm test'
+          bat 'npm install'
+          bat 'npm test'
         }
       }
     }
     stage('Build Docker Image') {
       steps {
         script {
-          // Build Docker image
-          sh 'docker build -t my-web-app:${BUILD_NUMBER} .'
+          // Construct Docker image tag based on environment
+          def dockerImageTag = "${env.DOCKER_USERNAME}/my-web-app:${env.BUILD_NUMBER}-${params.ENVIRONMENT}"
+          bat "docker build -t ${dockerImageTag} ."
         }
       }
     }
     stage('Push Docker Image to Docker Hub') {
       steps {
         script {
-          // Push Docker image to Docker Hub
           withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-            sh "docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD"
+            bat "docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD"
           }
-          sh 'docker push my-web-app:${BUILD_NUMBER}'
+          // Construct Docker image tag based on environment
+          def dockerImageTag = "${env.DOCKER_USERNAME}/my-web-app:${env.BUILD_NUMBER}-${params.ENVIRONMENT}"
+          bat "docker push ${dockerImageTag}"
         }
       }
     }
     stage('Deploy to AWS') {
       steps {
         script {
-          // Deploy to AWS using Terraform
-          sh 'terraform init'
-          sh 'terraform apply -auto-approve'
+          // Depending on the environment, use different Terraform configurations
+          def terraformEnvFile = ""
+          switch (params.ENVIRONMENT) {
+            case 'development':
+              terraformEnvFile = "terraform.dev.tfvars"
+              break
+            case 'staging':
+              terraformEnvFile = "terraform.staging.tfvars"
+              break
+            case 'production':
+              terraformEnvFile = "terraform.prod.tfvars"
+              break
+            default:
+              echo "Invalid environment specified"
+              return
+          }
+          bat "terraform init"
+          bat "terraform apply -auto-approve -var-file=${terraformEnvFile}"
         }
       }
     }
-    stage('Integration Test') {
-      steps {
-        script {
-          // Run integration tests
-          sh 'node integration-test.js'
-        }
-      }
-    }
+    // Additional stages for integration tests or other tasks can be added here
   }
 }
